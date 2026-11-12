@@ -3,8 +3,16 @@ import cors from 'cors';
 import { MongoClient } from 'mongodb';
 import 'dotenv/config'
 
+// MongoDB connection
+
 const app = express();
 const port = process.env.PORT || 5000;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+
 
 const client = new MongoClient(`${process.env.MONGODB_URI}`);
 
@@ -21,15 +29,23 @@ export async function connectToMongoDB() {
 const clients = await connectToMongoDB();
 const database = clients.db('hireloop');
 const usersCollection = database.collection('user');
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-
+const jobsCollection = database.collection('jobs')
 
 
 app.get('/', (req, res) => {
   res.send('Hireloop server is running');
+});
+
+app.get('/users', async (req, res) => {
+    const cursor = usersCollection.find({});
+  const allUsers = await cursor.toArray();
+
+  res.json(allUsers);
+});
+
+app.post('/jobs', async (req, res) => {
+  const result = await jobsCollection.insertOne(req.body);
+  res.json(result);
 });
 
 app.listen(port, () => {
