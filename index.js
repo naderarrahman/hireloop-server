@@ -48,6 +48,12 @@ app.post('/jobs', async (req, res) => {
   res.json(result);
 });
 
+app.get('/jobs', async (req, res) => {
+  const cursor = jobsCollection.find({});
+  const allJobs = await cursor.toArray();
+  res.json(allJobs);
+});
+
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
