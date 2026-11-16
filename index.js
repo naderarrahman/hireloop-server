@@ -78,6 +78,23 @@ app.patch('/jobs/:id', async (req, res) => {
     res.status(500).json({ error: "Failed to update job" });
   }
 });
+
+app.get('/jobs/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const query = { _id: new ObjectId(id) };
+    const job = await jobsCollection.findOne(query);
+    
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    
+    res.json(job);
+  } catch (error) {
+    res.status(500).json({ error: "Invalid Job ID" });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
