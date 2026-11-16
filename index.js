@@ -61,6 +61,23 @@ app.delete('/jobs/:id', async (req, res) => {
   res.json(result);
 });
 
+
+app.patch('/jobs/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const updatedData = req.body;
+    
+    delete updatedData._id; 
+
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = { $set: updatedData };
+    
+    const result = await jobsCollection.updateOne(filter, updateDoc);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update job" });
+  }
+});
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
