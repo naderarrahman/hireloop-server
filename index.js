@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
 
 // MongoDB connection
@@ -52,6 +52,13 @@ app.get('/jobs', async (req, res) => {
   const cursor = jobsCollection.find({});
   const allJobs = await cursor.toArray();
   res.json(allJobs);
+});
+
+app.delete('/jobs/:id', async (req, res) => {
+  const id = req.params.id;
+  const query = { _id: new ObjectId(id) };
+  const result = await jobsCollection.deleteOne(query);
+  res.json(result);
 });
 
 app.listen(port, () => {
