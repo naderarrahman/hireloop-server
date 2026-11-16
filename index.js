@@ -30,6 +30,7 @@ const clients = await connectToMongoDB();
 const database = clients.db('hireloop');
 const usersCollection = database.collection('user');
 const jobsCollection = database.collection('jobs')
+const applicationsCollection = database.collection('applications')
 
 
 app.get('/', (req, res) => {
@@ -123,6 +124,33 @@ app.get('/jobs/:id', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: "Invalid Job ID" });
   }
+});
+
+//application collection
+app.post('/applications', async (req, res) => {
+  try {
+    const applicationsData = {
+      ...req.body,
+      appliedAt: new Date(), 
+    };
+    
+    const result = await applicationsCollection.insertOne(applicationsData);
+    
+    res.status(201).json({ success: true, insertedId: result.insertedId });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to submit application" });
+  }
+});
+
+app.get('/applications', async (req, res) => {
+  const query = {};
+  if(req.query.userId) {
+    query.userId = req.query.userId;
+  }
+
+  const cursor = applicationsCollection.find(query);
+  const allApplications = await cursor.toArray();
+  res.json(allApplications);
 });
 
 app.listen(port, () => {
