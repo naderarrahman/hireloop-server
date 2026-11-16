@@ -49,7 +49,37 @@ app.post('/jobs', async (req, res) => {
 });
 
 app.get('/jobs', async (req, res) => {
-  const cursor = jobsCollection.find({});
+  console.log("Query received:", req.query);
+
+  const query = {};
+
+  if (req.query.jobType) {
+    query.jobType = req.query.jobType;
+  }
+
+  if (req.query.isRemote) {
+    query.isRemote = req.query.isRemote === "true";
+  }
+
+  if (req.query.category) {
+    const categories = req.query.category.split(",");
+    query.category = { $in: categories };
+  }
+
+  if (req.query.search) {
+    const searchRegex = new RegExp(req.query.search, "i");
+    
+    query.$or = [
+      { jobTitle: searchRegex },
+      { companyName: searchRegex },
+      { category: searchRegex },  
+      { jobType: searchRegex },
+      { location: searchRegex },    
+      { qualifications: searchRegex },
+    ];
+  }
+
+  const cursor = jobsCollection.find(query);
   const allJobs = await cursor.toArray();
   res.json(allJobs);
 });
