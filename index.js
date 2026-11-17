@@ -2,6 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // MongoDB connection
 
@@ -31,6 +34,9 @@ const database = clients.db('hireloop');
 const usersCollection = database.collection('user');
 const jobsCollection = database.collection('jobs')
 const applicationsCollection = database.collection('applications')
+const paymentsCollection = database.collection('payments')
+
+
 
 
 app.get('/', (req, res) => {
@@ -42,6 +48,48 @@ app.get('/users', async (req, res) => {
   const allUsers = await cursor.toArray();
 
   res.json(allUsers);
+});
+
+app.patch('/users/:id/role', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { role } = req.body;
+
+    const allowedRoles = ['seeker', 'recruiter', 'admin'];
+    if (!role || !allowedRoles.includes(role.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid role (seeker, recruiter, admin) is required",
+      });
+    }
+
+    // Better Auth-এ _id অনেক সময় ObjectId অথবা string হতে পারে, তাই উভয়ভাবেই চেক করা নিরাপদ
+    const query = ObjectId.isValid(id)
+      ? { $or: [{ _id: new ObjectId(id) }, { id: id }] }
+      : { $or: [{ _id: id }, { id: id }] };
+
+    const updateDoc = {
+      $set: {
+        role: role.toLowerCase(),
+        updatedAt: new Date(),
+      },
+    };
+
+    const result = await usersCollection.updateOne(query, updateDoc);
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    res.json({
+      success: true,
+      message: "User role updated successfully",
+      result,
+    });
+  } catch (error) {
+    console.error("Error updating user role:", error);
+    res.status(500).json({ success: false, error: "Failed to update user role" });
+  }
 });
 
 app.post('/jobs', async (req, res) => {
@@ -65,6 +113,10 @@ app.get('/jobs', async (req, res) => {
   if (req.query.category) {
     const categories = req.query.category.split(",");
     query.category = { $in: categories };
+  }
+
+  if(req.query.recruiterId){
+    query.recruiterId = req.query.recruiterId;
   }
 
   if (req.query.search) {
@@ -126,7 +178,39 @@ app.get('/jobs/:id', async (req, res) => {
   }
 });
 
+//premiumUser
+app.get('/users/:id/isPremium', async (req,res)=> {
+  const id = req.params.id;
+  const query = { _id: new ObjectId(id) };
+  const user = await usersCollection.findOne(query);
+    res.json({ isPremium: user.isPremium || false });
+})
+
 //application collection
+app.get('/applications/count', async (req, res) => {
+  const query = {};
+  if(req.query.userId) {
+    query.userId = req.query.userId;
+  }
+const count = await applicationsCollection.countDocuments(query);
+  res.json({ count : count });
+});
+
+app.get('/applications', async (req, res) => {
+  const query = {};
+  if(req.query.userId) {
+    query.userId = req.query.userId;
+  }
+
+  if(req.query.jobId){
+    query.jobId = req.query.jobId;
+  }
+
+  const cursor = applicationsCollection.find(query);
+  const allApplications = await cursor.toArray();
+  res.json(allApplications);
+});
+
 app.post('/applications', async (req, res) => {
   try {
     const applicationsData = {
@@ -142,16 +226,94 @@ app.post('/applications', async (req, res) => {
   }
 });
 
-app.get('/applications', async (req, res) => {
-  const query = {};
-  if(req.query.userId) {
-    query.userId = req.query.userId;
-  }
+app.patch('/applications/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { status } = req.body;
 
-  const cursor = applicationsCollection.find(query);
-  const allApplications = await cursor.toArray();
-  res.json(allApplications);
+    if (!status) {
+      return res.status(400).json({ success: false, message: "Status is required" });
+    }
+
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = {
+      $set: {
+        status: status,
+        updatedAt: new Date(),
+      },
+    };
+
+    const result = await applicationsCollection.updateOne(filter, updateDoc);
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Application not found" });
+    }
+
+    res.json({ success: true, message: "Status updated successfully", result });
+  } catch (error) {
+    console.error("Error updating application status:", error);
+    res.status(500).json({ success: false, error: "Failed to update application status" });
+  }
 });
+
+
+
+
+// Stripe payment intent endpoint
+app.post('/payment/verify-payment', async (req, res) => {
+  try {
+    const { session_id } = req.body;
+
+    if (!session_id) {
+      return res.status(400).json({ success: false, message: 'Session ID is required' });
+    }
+
+    const stripeSession = await stripe.checkout.sessions.retrieve(session_id);
+
+    if (stripeSession.status === 'complete' && stripeSession.payment_status === 'paid') {
+      
+      const existingPayment = await paymentsCollection.findOne({ sessionId: session_id });
+
+      if (existingPayment) {
+        return res.json({ success: false, message: 'Payment already verified' });
+      }
+
+      const paymentData = {
+        sessionId: session_id, 
+        customer_email: stripeSession.customer_email,
+        payment_intent: stripeSession.payment_intent,
+        metadata: stripeSession.metadata,
+        payment_status: stripeSession.payment_status,
+        userId: stripeSession.metadata.userId,
+        createdAt: new Date(),
+      };
+
+      const result = await paymentsCollection.insertOne(paymentData);
+      
+      const query = { _id: new ObjectId(stripeSession.metadata.userId) };
+      const updateDoc = { $set: { isPremium: true } };
+      
+      const updateResult = await usersCollection.updateOne(query, updateDoc);
+      
+      return res.json({ 
+        success: true, 
+        message: 'Payment verified and user updated to premium',
+        result, 
+        updateResult 
+      });
+    }
+    
+    return res.json({ success: false, message: 'Payment not verified' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+
+
+
+
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
